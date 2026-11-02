@@ -3148,7 +3148,6 @@ private fun EmptyState(title: String, message: String) {
 
 
 
-@Composable
 private fun paddyGrossKg(record: SeasonPaddyEntity): Double = record.bags * record.kgPerBag
 
 private fun paddyCuttingKg(record: SeasonPaddyEntity): Double {
