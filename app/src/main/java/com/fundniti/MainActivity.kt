@@ -1403,6 +1403,7 @@ private fun InterestCalculatorCard() {
     var principalText by remember { mutableStateOf("") }
     var rateText by remember { mutableStateOf("") }
     var ratePeriod by remember { mutableStateOf("Monthly") }
+    var interestMode by remember { mutableStateOf("ACCRUED") }
     var yearsText by remember { mutableStateOf("0") }
     var monthsText by remember { mutableStateOf("1") }
     var daysText by remember { mutableStateOf("0") }
@@ -1430,6 +1431,12 @@ private fun InterestCalculatorCard() {
      , elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Interest Calculator", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.material3.FilterChip(selected = interestMode == "ACCRUED",
+                    onClick = { interestMode = "ACCRUED" }, label = { Text("By duration") })
+                androidx.compose.material3.FilterChip(selected = interestMode == "PERIOD",
+                    onClick = { interestMode = "PERIOD" }, label = { Text("Per month / year") })
+            }
             OutlinedTextField(principalText, { principalText = amountInputFormat(it) },
                 modifier = Modifier.fillMaxWidth(), label = { Text("Principal amount (₹)") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
@@ -1442,7 +1449,7 @@ private fun InterestCalculatorCard() {
             OutlinedTextField(rateText, { rateText = it.filter { c -> c.isDigit() || c == '.' }.take(8) },
                 modifier = Modifier.fillMaxWidth(), label = { Text("${ratePeriod} interest rate (%)") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (interestMode == "ACCRUED") Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(yearsText, { yearsText = it.filter(Char::isDigit).take(4) },
                     modifier = Modifier.weight(1f), label = { Text("Years") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true)
@@ -1453,17 +1460,23 @@ private fun InterestCalculatorCard() {
                     modifier = Modifier.weight(1f), label = { Text("Extra days") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true)
             }
-            if (interest != null) {
+            if (interestMode == "PERIOD") {
+                if (principal != null && principal > 0 && rate != null && rate >= 0) {
+                    HorizontalResultLine("Interest per month", money(principal * rate / 100.0))
+                    HorizontalResultLine("Interest per year", money(principal * rate * 12.0 / 100.0))
+                    Text("Simple interest on the original principal, without compounding.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else Text("Enter a positive principal and a non-negative interest rate.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else if (interest != null) {
                 HorizontalResultLine("Interest amount", money(interest))
                 HorizontalResultLine("Principal + interest", money(principal!! + interest))
                 HorizontalResultLine("Duration", "${yearsText.toLongOrNull() ?: 0} years, ${monthsText.toLongOrNull() ?: 0} months, ${daysText.toLongOrNull() ?: 0} days")
-                HorizontalResultLine("Per month at this rate", money(principal!! * rate!! / 100.0))
-                HorizontalResultLine("Per year at this rate", money(principal * rate * 12.0 / 100.0))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = { shareCalculatorResult(context, "Interest Calculator", "INTEREST CALCULATION RESULT\nPrincipal: ${money(principal!!)}\n${ratePeriod} interest rate: ${enteredRate}%\nDuration: ${yearsText.toLongOrNull() ?: 0} years, ${monthsText.toLongOrNull() ?: 0} months, ${daysText.toLongOrNull() ?: 0} days\nInterest amount: ${money(interest)}\nInterest per month: ${money(principal * rate / 100.0)}\nInterest per year: ${money(principal * rate * 12.0 / 100.0)}\nPrincipal + interest: ${money(principal + interest)}") }, modifier = Modifier.weight(1f)) { Text("Share image") }
                     Button(onClick = { shareCalculatorResultPdf(context, "Interest Calculator", "INTEREST CALCULATION RESULT\nPrincipal: ${money(principal!!)}\n${ratePeriod} interest rate: ${enteredRate}%\nDuration: ${yearsText.toLongOrNull() ?: 0} years, ${monthsText.toLongOrNull() ?: 0} months, ${daysText.toLongOrNull() ?: 0} days\nInterest amount: ${money(interest)}\nInterest per month: ${money(principal * rate / 100.0)}\nInterest per year: ${money(principal * rate * 12.0 / 100.0)}\nPrincipal + interest: ${money(principal + interest)}") }, modifier = Modifier.weight(1f)) { Text("Share PDF") }
                 }
-            } else {
+            } else if (interestMode == "ACCRUED") {
                 Text("Enter a positive principal, a non-negative rate, and a valid duration.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
