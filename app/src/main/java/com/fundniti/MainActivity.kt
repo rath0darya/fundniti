@@ -3187,18 +3187,40 @@ private fun PaddySeasonScreen(
                 Icon(Icons.Filled.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(5.dp)); Text("Add lot")
             }
         }
-        Box(Modifier.fillMaxWidth()) {
-            OutlinedTextField(
-                value = seasonFilter,
-                onValueChange = {},
-                readOnly = true,
-                label = { Text("Filter by season") },
-                modifier = Modifier.fillMaxWidth().clickable { filterExpanded = !filterExpanded },
-                trailingIcon = { Text("▼", modifier = Modifier.clickable { filterExpanded = !filterExpanded }) }
-            )
-            DropdownMenu(expanded = filterExpanded, onDismissRequest = { filterExpanded = false }) {
-                listOf("All Seasons", "Kharif", "Rabi").forEach { option ->
-                    DropdownMenuItem(text = { Text(option) }, onClick = { seasonFilter = option; filterExpanded = false })
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Box(Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    value = seasonFilter,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Filter by season") },
+                    modifier = Modifier.fillMaxWidth(),
+                    trailingIcon = { Text("▼") }
+                )
+                // A full-field hit target avoids nested popup/scroll gesture conflicts.
+                Box(Modifier.matchParentSize().clickable { filterExpanded = !filterExpanded })
+            }
+            if (filterExpanded) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
+                ) {
+                    Column {
+                        listOf("All Seasons", "Kharif", "Rabi").forEach { option ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth()
+                                    .clickable { seasonFilter = option; filterExpanded = false }
+                                    .padding(horizontal = 16.dp, vertical = 13.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(option, color = if (seasonFilter == option) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurface,
+                                    fontWeight = if (seasonFilter == option) FontWeight.SemiBold else FontWeight.Normal)
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -3299,19 +3321,41 @@ private fun PaddyRecordDialog(
                 OutlinedTextField(season, { season = it }, label = { Text("Season (Kharif or Rabi)") }, singleLine = true)
                 OutlinedTextField(farmer, { farmer = it }, label = { Text("Farmer / owner name") }, singleLine = true)
                 OutlinedTextField(variety, { variety = it }, label = { Text("Paddy variety (optional)") }, singleLine = true)
-                Box(Modifier.fillMaxWidth()) {
-                    OutlinedTextField(
-                        value = storage,
-                        onValueChange = {},
-                        label = { Text("Lot status") },
-                        readOnly = true,
-                        trailingIcon = { Text("▼", modifier = Modifier.clickable { storageExpanded = !storageExpanded }) },
-                        modifier = Modifier.fillMaxWidth().clickable { storageExpanded = !storageExpanded },
-                        singleLine = true
-                    )
-                    DropdownMenu(expanded = storageExpanded, onDismissRequest = { storageExpanded = false }) {
-                        listOf("Sold", "Preserved").forEach { option ->
-                            DropdownMenuItem(text = { Text(option) }, onClick = { storage = option; storageExpanded = false })
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Box(Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = storage,
+                            onValueChange = {},
+                            label = { Text("Lot status") },
+                            readOnly = true,
+                            trailingIcon = { Text("▼") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+                        // Keep selection inside the dialog window instead of opening a nested popup.
+                        Box(Modifier.matchParentSize().clickable { storageExpanded = !storageExpanded })
+                    }
+                    if (storageExpanded) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
+                        ) {
+                            Column {
+                                listOf("Sold", "Preserved").forEach { option ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth()
+                                            .clickable { storage = option; storageExpanded = false }
+                                            .padding(horizontal = 16.dp, vertical = 13.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(option, color = if (storage == option) MaterialTheme.colorScheme.primary
+                                            else MaterialTheme.colorScheme.onSurface,
+                                            fontWeight = if (storage == option) FontWeight.SemiBold else FontWeight.Normal)
+                                    }
+                                }
+                            }
                         }
                     }
                 }
