@@ -66,6 +66,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -1473,8 +1474,8 @@ private fun InterestCalculatorCard() {
                 HorizontalResultLine("Principal + interest", money(principal!! + interest))
                 HorizontalResultLine("Duration", "${yearsText.toLongOrNull() ?: 0} years, ${monthsText.toLongOrNull() ?: 0} months, ${daysText.toLongOrNull() ?: 0} days")
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { shareCalculatorResult(context, "Interest Calculator", "INTEREST CALCULATION RESULT\nPrincipal: ${money(principal!!)}\n${ratePeriod} interest rate: ${enteredRate}%\nDuration: ${yearsText.toLongOrNull() ?: 0} years, ${monthsText.toLongOrNull() ?: 0} months, ${daysText.toLongOrNull() ?: 0} days\nInterest amount: ${money(interest)}\nInterest per month: ${money(principal * rate / 100.0)}\nInterest per year: ${money(principal * rate * 12.0 / 100.0)}\nPrincipal + interest: ${money(principal + interest)}") }, modifier = Modifier.weight(1f)) { Text("Share image") }
-                    Button(onClick = { shareCalculatorResultPdf(context, "Interest Calculator", "INTEREST CALCULATION RESULT\nPrincipal: ${money(principal!!)}\n${ratePeriod} interest rate: ${enteredRate}%\nDuration: ${yearsText.toLongOrNull() ?: 0} years, ${monthsText.toLongOrNull() ?: 0} months, ${daysText.toLongOrNull() ?: 0} days\nInterest amount: ${money(interest)}\nInterest per month: ${money(principal * rate / 100.0)}\nInterest per year: ${money(principal * rate * 12.0 / 100.0)}\nPrincipal + interest: ${money(principal + interest)}") }, modifier = Modifier.weight(1f)) { Text("Share PDF") }
+                    Button(onClick = { shareCalculatorResult(context, "Interest Calculator", "INTEREST CALCULATION RESULT\nPrincipal: ${money(principal!!)}\n${ratePeriod} interest rate: ${enteredRate}%\nDuration: ${yearsText.toLongOrNull() ?: 0} years, ${monthsText.toLongOrNull() ?: 0} months, ${daysText.toLongOrNull() ?: 0} days\nInterest amount: ${money(interest)}\nInterest per month: ${money(principal!! * rate!! / 100.0)}\nInterest per year: ${money(principal * rate * 12.0 / 100.0)}\nPrincipal + interest: ${money(principal + interest)}") }, modifier = Modifier.weight(1f)) { Text("Share image") }
+                    Button(onClick = { shareCalculatorResultPdf(context, "Interest Calculator", "INTEREST CALCULATION RESULT\nPrincipal: ${money(principal!!)}\n${ratePeriod} interest rate: ${enteredRate}%\nDuration: ${yearsText.toLongOrNull() ?: 0} years, ${monthsText.toLongOrNull() ?: 0} months, ${daysText.toLongOrNull() ?: 0} days\nInterest amount: ${money(interest)}\nInterest per month: ${money(principal!! * rate!! / 100.0)}\nInterest per year: ${money(principal * rate * 12.0 / 100.0)}\nPrincipal + interest: ${money(principal + interest)}") }, modifier = Modifier.weight(1f)) { Text("Share PDF") }
                 }
             } else if (interestMode == "ACCRUED") {
                 Text("Enter a positive principal, a non-negative rate, and a valid duration.",
