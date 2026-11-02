@@ -2233,6 +2233,7 @@ private fun StatisticsScreen(
         }
         val paddyBags = paddyRecords.sumOf { it.bags }
         val paddyQuintals = paddyRecords.sumOf { paddyNetQuintals(it) }
+        val paddyCutting = paddyRecords.sumOf { paddyCuttingKg(it) }
         val paddyValue = paddyRecords.sumOf { paddyNetValue(it) }
         val paddyPaid = paddyRecords.sumOf { it.paidAmount }
         val storageSummary = paddyRecords.groupBy { it.storageLocation.trim().ifBlank { "Not specified" } }
@@ -2241,6 +2242,7 @@ private fun StatisticsScreen(
         GlassPanel("Paddy season & storage report", "Harvest, stock locations and settlement totals from saved paddy records") {
             DetailLine("Recorded lots", paddyRecords.size.toString())
             DetailLine("Paddy bags", paddyBags.toString())
+            DetailLine("Cutting deducted", "${paddyNumber(paddyCutting)} kg")
             DetailLine("Weight after cutting", "${paddyNumber(paddyQuintals)} quintals")
             DetailLine("Estimated value", money(paddyValue))
             DetailLine("Paid / remaining", "${money(paddyPaid)} / ${money((paddyValue - paddyPaid).coerceAtLeast(0.0))}")
@@ -3185,6 +3187,7 @@ private fun PaddySeasonScreen(
     }
     val totalBags = visible.sumOf { it.bags }
     val totalQuintals = visible.sumOf { paddyNetQuintals(it) }
+    val totalCuttingKg = visible.sumOf { paddyCuttingKg(it) }
     val totalValue = visible.sumOf { paddyNetValue(it) }
     val totalPaid = visible.sumOf { it.paidAmount }
     val storageSummary = visible.groupBy { it.storageLocation.trim().ifBlank { "Not specified" } }
@@ -3259,10 +3262,11 @@ private fun PaddySeasonScreen(
                 storageSummary.take(5).forEach { (location, quintals) ->
                     DetailLine(location, "${paddyNumber(quintals)} quintals")
                 }
+                DetailLine("Cutting deducted", "${paddyNumber(totalCuttingKg)} kg")
                 DetailLine("Balance to pay", money((totalValue - totalPaid).coerceAtLeast(0.0)))
             }
         }
-        Text("1 quintal = 100 kg. Value = bags × kg per bag ÷ 100 × rate per quintal.",
+        Text("Net weight = gross weight − cutting (bags × cutting per bag + gross quintals × cutting per quintal). Value = net quintals × rate per quintal.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (visible.isEmpty()) {
             EmptyState("No paddy records yet", "Add a lot to track its season, harvest weight, payment and storage location.")
