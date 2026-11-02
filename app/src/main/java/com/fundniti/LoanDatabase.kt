@@ -37,6 +37,8 @@ data class SeasonPaddyEntity(
     val farmerName: String,
     val paddyVariety: String,
     val storageLocation: String,
+    val cuttingPerBagKg: Double? = null,
+    val cuttingPerQuintalKg: Double? = null,
     val bags: Int,
     val kgPerBag: Double,
     val ratePerQuintal: Double,
@@ -113,7 +115,7 @@ interface LoanDao {
     suspend fun deleteSeasonPaddy(recordId: Long)
 }
 
-@Database(entities = [LoanEntity::class, PaymentEntity::class, SeasonPaddyEntity::class], version = 4, exportSchema = false)
+@Database(entities = [LoanEntity::class, PaymentEntity::class, SeasonPaddyEntity::class], version = 5, exportSchema = false)
 abstract class LoanDatabase : RoomDatabase() {
     abstract fun loanDao(): LoanDao
 
@@ -152,6 +154,13 @@ abstract class LoanDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE season_paddy ADD COLUMN cuttingPerBagKg REAL")
+                database.execSQL("ALTER TABLE season_paddy ADD COLUMN cuttingPerQuintalKg REAL")
+            }
+        }
+
         @Volatile private var INSTANCE: LoanDatabase? = null
 
         fun get(context: Context): LoanDatabase =
@@ -160,7 +169,7 @@ abstract class LoanDatabase : RoomDatabase() {
                     context.applicationContext,
                     LoanDatabase::class.java,
                     "loan_manager.db"
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build().also { INSTANCE = it }
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build().also { INSTANCE = it }
             }
     }
 }

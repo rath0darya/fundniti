@@ -132,15 +132,14 @@ internal suspend fun createBackupJson(dao: LoanDao): String {
             .put("farmerName", record.farmerName)
             .put("paddyVariety", record.paddyVariety)
             .put("storageLocation", record.storageLocation)
+            .put("cuttingPerBagKg", record.cuttingPerBagKg ?: JSONObject.NULL)
+            .put("cuttingPerQuintalKg", record.cuttingPerQuintalKg ?: JSONObject.NULL)
             .put("bags", record.bags)
             .put("kgPerBag", record.kgPerBag)
             .put("ratePerQuintal", record.ratePerQuintal)
             .put("paidAmount", record.paidAmount)
             .put("recordedAt", record.recordedAt)
             .put("notes", record.notes))
-    }
-    if (loanArray.length() == 0 && paymentArray.length() == 0 && paddyArray.length() == 0) {
-        throw IOException("No saved records found. The previous backup was kept unchanged.")
     }
     root.put("formatVersion", 3)
         .put("exportedAt", System.currentTimeMillis())
@@ -209,12 +208,6 @@ object DurableBackup {
     fun writeAutomatic(context: Context, plainText: String): Uri {
         val root = try { JSONObject(plainText) } catch (e: Exception) {
             throw IOException("Backup data is invalid. The previous backup was kept unchanged.", e)
-        }
-        val loansCount = root.optJSONArray("loans")?.length() ?: 0
-        val paymentsCount = root.optJSONArray("payments")?.length() ?: 0
-        val paddyCount = root.optJSONArray("seasonPaddy")?.length() ?: 0
-        if (loansCount + paymentsCount + paddyCount == 0) {
-            throw IOException("No saved records found. The previous backup was kept unchanged.")
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val resolver = context.contentResolver
@@ -297,9 +290,6 @@ internal suspend fun restoreBackupJson(db: LoanDatabase, dao: LoanDao, text: Str
         ?: throw IOException("Backup is missing its loans list. Choose FundNiti-Backup.lendora or Lendora-Data.json.")
     val paymentArray = root.optJSONArray("payments") ?: root.optJSONArray("repayments") ?: JSONArray()
     val paddyArray = root.optJSONArray("seasonPaddy") ?: JSONArray()
-    if (loanArray.length() == 0 && paymentArray.length() == 0 && paddyArray.length() == 0) {
-        throw IOException("This backup has no saved records. No data was changed.")
-    }
     for (i in 0 until loanArray.length()) {
         val item = loanArray.optJSONObject(i) ?: throw IOException("Backup loan record " + (i + 1) + " is damaged. No data was changed.")
         if (!item.has("personName") || !item.has("principal") || !item.has("startDate")) {
@@ -359,6 +349,8 @@ internal suspend fun restoreBackupJson(db: LoanDatabase, dao: LoanDao, text: Str
                 farmerName = o.getString("farmerName"),
                 paddyVariety = o.optString("paddyVariety", ""),
                 storageLocation = o.optString("storageLocation", ""),
+                cuttingPerBagKg = o.optDouble("cuttingPerBagKg").takeIf { o.has("cuttingPerBagKg") && !o.isNull("cuttingPerBagKg") },
+                cuttingPerQuintalKg = o.optDouble("cuttingPerQuintalKg").takeIf { o.has("cuttingPerQuintalKg") && !o.isNull("cuttingPerQuintalKg") },
                 bags = o.getInt("bags"),
                 kgPerBag = o.optDouble("kgPerBag", 75.0),
                 ratePerQuintal = o.optDouble("ratePerQuintal", 0.0),

@@ -56,9 +56,11 @@ FundNiti uses **simple interest on the original principal**. Interest is not com
 - The current automatic snapshot is saved to `Download/FundNiti/Backup/Lendora-Data.json` in shared Downloads.
 - Each backup run replaces the existing snapshot with the latest complete database state; it does not append to old data.
 - New backups include a SHA-256 integrity checksum. FundNiti verifies it before restoring and continues to accept older backups without a checksum.
-- On a fresh installation, FundNiti checks the automatic snapshot and restores records if the database is empty and the backup is present and readable.
+- On a fresh installation, FundNiti asks whether to load the automatic snapshot when the database is empty and a readable backup is present.
+- Every loan, repayment, and paddy add, edit, or delete refreshes the same snapshot, including when the last record is deleted.
+- Open **Backup → Save portable backup to Drive / files** to pick Google Drive or another Android file provider. This portable JSON can be restored on another installation.
 - Open **Backup → Back up all data now** to write a fresh snapshot immediately.
-- Manual `.lendora` exports use AES-GCM encryption with Android Keystore and are generally tied to the original installation/device key.
+- Manual `.lendora` exports use AES-GCM encryption with Android Keystore and are generally tied to the original installation/device key. Use the portable JSON export for Drive or moving to another installation.
 - The automatic JSON snapshot is unencrypted so a fresh installation can read it without the old Keystore key. It contains sensitive financial records; protect your device and do not share the file.
 - Keep a second backup copy in a location you control; no app can guarantee recovery after storage cleanup, device failure, or file deletion.
 
@@ -66,7 +68,7 @@ FundNiti uses **simple interest on the original principal**. Interest is not com
 
 - **Install the APK:** [Get the latest FundNiti release](https://github.com/rath0darya/Loan-Manager/releases/latest)
 - **Build status:** [Latest GitHub Actions runs](https://github.com/rath0darya/Loan-Manager/actions)
-- Each successful main branch build publishes a versioned APK in GitHub Releases. The existing `Download/LoanManager.apk` file is retained unchanged.
+- Each successful main branch build publishes a versioned APK in GitHub Releases.
 - **Build from source:** Open the repository in Android Studio with JDK 17 and the Android SDK required by the project, sync Gradle, then run on a device or emulator.
 
 ## 🧱 Technology
@@ -81,7 +83,7 @@ FundNiti uses **simple interest on the original principal**. Interest is not com
 
 - **App name:** FundNiti
 - **Application ID:** `com.fundniti`
-- **Current version:** `1.3.0`
+- **Current version:** `1.4.0`
 - **Data storage:** On-device Room database
 - **Upgrade note:** `com.fundniti` installs as a separate Android app from earlier `com.rath0darya.loanmanager` builds. Keep the automatic `Lendora-Data.json` snapshot and restore it in the new app; encrypted `.lendora` exports are tied to the installation key.
 - **Network backend:** None required

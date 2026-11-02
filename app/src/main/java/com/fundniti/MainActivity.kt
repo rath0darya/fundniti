@@ -38,6 +38,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalance
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Home
@@ -261,6 +262,7 @@ private fun LoanManagerApp() {
     }
     val snackbarHostState = remember { androidx.compose.material3.SnackbarHostState() }
     var backupStatus by remember { mutableStateOf("Device backup will be checked automatically.") }
+    var restoreCandidate by remember { mutableStateOf<String?>(null) }
     val notificationPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { }
@@ -286,6 +288,21 @@ private fun LoanManagerApp() {
             } catch (e: Exception) {
                 snackbarHostState.showSnackbar("Backup failed: ${e.localizedMessage ?: "unknown error"}")
             }
+        }
+    }
+    val portableBackupLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri: Uri? ->
+        if (uri != null) scope.launch {
+            runCatching {
+                val json = createBackupJson(dao)
+                withContext(Dispatchers.IO) {
+                    context.contentResolver.openOutputStream(uri, "wt")?.bufferedWriter(Charsets.UTF_8)?.use { it.write(json) }
+                        ?: error("Could not write the backup file")
+                }
+                backupStatus = "Portable backup saved. Choose Google Drive in the file picker to store it there."
+            }.onFailure { backupStatus = "Backup failed: ${it.localizedMessage ?: "storage unavailable"}" }
+            snackbarHostState.showSnackbar(backupStatus)
         }
     }
     val importLauncher = rememberLauncherForActivityResult(
@@ -318,10 +335,10 @@ private fun LoanManagerApp() {
                 val status = if (existingLoans.isEmpty() && existingPayments.isEmpty() && existingPaddy.isEmpty()) {
                     val saved = DurableBackup.readAutomatic(context)
                     if (saved != null) {
-                        restoreBackupJson(db, dao, saved)
-                        "Recovered ${dao.allLoans().size} loans and ${dao.allPayments().size} repayments from the Android folder."
+                        restoreCandidate = saved
+                        "A backup was found. Choose whether to load it into this app."
                     } else {
-                        "No existing Android folder backup was found yet."
+                        "No existing backup was found yet."
                     }
                 } else {
                     "Found ${existingLoans.size} loans, ${existingPayments.size} repayments and ${existingPaddy.size} paddy records on this device."
@@ -443,7 +460,7 @@ private fun LoanManagerApp() {
             when (page) {
                 AppPage.Home -> DashboardScreen(
                     Modifier.padding(padding), loans, totalOutstanding, totalPrincipal, totalPaid,
-                    monthlyInterest, ::balance, { page = AppPage.Loans }, { detailLoan = it }, payments
+                    monthlyInterest, ::balance, { page = AppPage.Loans }, { detailLoan = it }, payments, paddyRecords
                 )
                 AppPage.Loans -> LoansScreen(
                     Modifier.padding(padding), loans, ::balance, paymentTotals, search, { search = it },
@@ -457,8 +474,14 @@ private fun LoanManagerApp() {
                 )
                 AppPage.PaddySeasons -> PaddySeasonScreen(
                     modifier = Modifier.padding(padding), records = paddyRecords,
-                    onSave = { record -> scope.launch { if (record.id == 0L) dao.addSeasonPaddy(record) else dao.updateSeasonPaddy(record) } },
-                    onDelete = { record -> scope.launch { dao.deleteSeasonPaddy(record.id) } }
+                    onSave = { record -> scope.launch {
+                        if (record.id == 0L) dao.addSeasonPaddy(record) else dao.updateSeasonPaddy(record)
+                        withContext(Dispatchers.IO) { DurableBackup.writeAutomatic(context, createBackupJson(dao)) }
+                    } },
+                    onDelete = { record -> scope.launch {
+                        dao.deleteSeasonPaddy(record.id)
+                        withContext(Dispatchers.IO) { DurableBackup.writeAutomatic(context, createBackupJson(dao)) }
+                    } }
                 )
                 AppPage.More -> MoreScreen(
                     modifier = Modifier.padding(padding),
@@ -528,6 +551,7 @@ private fun LoanManagerApp() {
                         }
                     },
                     onExport = { exportLauncher.launch("FundNiti-Backup.lendora") },
+                    onExportPortable = { portableBackupLauncher.launch("FundNiti-Backup.json") },
                     onImport = { importLauncher.launch(arrayOf("application/octet-stream", "application/json", "text/*")) }
                 )
             }
@@ -541,7 +565,8 @@ private fun LoanManagerApp() {
             onDismiss = { showAddLoan = false; editLoan = null },
             onSave = { person1, person2, person3, direction, principal, rate, startDate, dueDays, note ->
                 scope.launch {
-                    val due = if (dueDays > 0) System.currentTimeMillis() + dueDays * 86_400_000L else null
+                    val due = if (dueDays > 0) LocalDate.now().plusDays(dueDays.toLong())
+                        .atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli() else null
                     val savedLoan = LoanEntity(
                         id = editing?.id ?: 0L,
                         personName = person1.trim(),
@@ -645,6 +670,28 @@ private fun LoanManagerApp() {
                 }
             }) { Text(if (confirmLoanDeleteFinal) "Delete permanently" else "Continue") } },
             dismissButton = { TextButton(onClick = { deleteConfirmLoan = null; confirmLoanDeleteFinal = false }) { Text("Cancel") } }
+        )
+    }
+    restoreCandidate?.let { backup ->
+        AlertDialog(
+            onDismissRequest = { restoreCandidate = null },
+            title = { Text("Backup found") },
+            text = { Text("A FundNiti backup is available. Load its loans, repayments, and paddy records into this app now?") },
+            confirmButton = { TextButton(onClick = {
+                scope.launch {
+                    runCatching {
+                        restoreBackupJson(db, dao, backup)
+                        withContext(Dispatchers.IO) { DurableBackup.writeAutomatic(context, createBackupJson(dao)) }
+                        backupStatus = "Backup loaded into the app. Future changes update the same backup file."
+                        snackbarHostState.showSnackbar("Backup restored")
+                    }.onFailure {
+                        backupStatus = "Restore failed: ${it.localizedMessage ?: "invalid backup"}"
+                        snackbarHostState.showSnackbar(backupStatus)
+                    }
+                    restoreCandidate = null
+                }
+            }) { Text("Load backup") } },
+            dismissButton = { TextButton(onClick = { restoreCandidate = null }) { Text("Not now") } }
         )
     }
     if (showExitConfirmation) {
@@ -1139,7 +1186,7 @@ private fun DetailLine(label: String, value: String) {
 private fun DashboardScreen(
     modifier: Modifier, loans: List<LoanEntity>, outstanding: Double, principal: Double,
     paid: Double, monthlyInterest: Double, balance: (LoanEntity) -> Double, onViewLoans: () -> Unit,
-    onViewDetails: (LoanEntity) -> Unit, payments: List<PaymentEntity>
+    onViewDetails: (LoanEntity) -> Unit, payments: List<PaymentEntity>, paddyRecords: List<SeasonPaddyEntity>
 ) {
     val heroDecoration = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.09f)
     LazyColumn(modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -1174,6 +1221,14 @@ private fun DashboardScreen(
                         }
                     }
                 }
+            }
+        }
+        if (paddyRecords.isNotEmpty()) item {
+            val bags = paddyRecords.sumOf { it.bags }
+            val quintals = paddyRecords.sumOf { it.bags * it.kgPerBag / 100.0 }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                StatCard("Paddy bags", bags.toString(), Modifier.weight(1f))
+                StatCard("Paddy stock", "${paddyNumber(quintals)} qtl", Modifier.weight(1f))
             }
         }
         item {
@@ -1347,17 +1402,21 @@ private fun InterestCalculatorCard() {
     val context = LocalContext.current
     var principalText by remember { mutableStateOf("") }
     var rateText by remember { mutableStateOf("") }
+    var ratePeriod by remember { mutableStateOf("Monthly") }
+    var yearsText by remember { mutableStateOf("0") }
     var monthsText by remember { mutableStateOf("1") }
     var daysText by remember { mutableStateOf("0") }
     val principal = parseAmount(principalText)
-    val rate = rateText.replace(",", "").trim().toDoubleOrNull()
+    val enteredRate = rateText.replace(",", "").trim().toDoubleOrNull()
+    val rate = enteredRate?.let { if (ratePeriod == "Annual") it / 12.0 else it }
+    val years = yearsText.toLongOrNull()
     val months = monthsText.toLongOrNull()
     val days = daysText.toLongOrNull()
     val valid = principal != null && principal > 0 && rate != null && rate >= 0 &&
-        months != null && months >= 0 && months <= 12000 && days != null && days >= 0 && days <= 36500
+        years != null && years >= 0 && years <= 1000 && months != null && months >= 0 && months <= 12000 && days != null && days >= 0 && days <= 36500
     val interest = if (valid) {
         val start = LocalDate.now()
-        val end = start.plusMonths(months!!).plusDays(days!!)
+        val end = start.plusYears(years!!).plusMonths(months!!).plusDays(days!!)
         accruedInterest(
             principal!!, rate!!,
             start.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli(),
@@ -1374,10 +1433,19 @@ private fun InterestCalculatorCard() {
             OutlinedTextField(principalText, { principalText = amountInputFormat(it) },
                 modifier = Modifier.fillMaxWidth(), label = { Text("Principal amount (₹)") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("Monthly", "Annual").forEach { period ->
+                    androidx.compose.material3.FilterChip(selected = ratePeriod == period,
+                        onClick = { ratePeriod = period }, label = { Text("$period rate") })
+                }
+            }
             OutlinedTextField(rateText, { rateText = it.filter { c -> c.isDigit() || c == '.' }.take(8) },
-                modifier = Modifier.fillMaxWidth(), label = { Text("Fixed monthly interest rate (%)") },
+                modifier = Modifier.fillMaxWidth(), label = { Text("${ratePeriod} interest rate (%)") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(yearsText, { yearsText = it.filter(Char::isDigit).take(4) },
+                    modifier = Modifier.weight(1f), label = { Text("Years") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true)
                 OutlinedTextField(monthsText, { monthsText = it.filter(Char::isDigit).take(5) },
                     modifier = Modifier.weight(1f), label = { Text("Months") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true)
@@ -1388,10 +1456,12 @@ private fun InterestCalculatorCard() {
             if (interest != null) {
                 HorizontalResultLine("Interest amount", money(interest))
                 HorizontalResultLine("Principal + interest", money(principal!! + interest))
-                HorizontalResultLine("Duration", "${monthsText.toLongOrNull() ?: 0} months, ${daysText.toLongOrNull() ?: 0} days")
+                HorizontalResultLine("Duration", "${yearsText.toLongOrNull() ?: 0} years, ${monthsText.toLongOrNull() ?: 0} months, ${daysText.toLongOrNull() ?: 0} days")
+                HorizontalResultLine("Per month at this rate", money(principal!! * rate!! / 100.0))
+                HorizontalResultLine("Per year at this rate", money(principal * rate * 12.0 / 100.0))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { shareCalculatorResult(context, "Interest Calculator", "INTEREST CALCULATION RESULT\nPrincipal: ${money(principal!!)}\nMonthly interest rate: ${rateText}%\nDuration: ${monthsText.toLongOrNull() ?: 0} months, ${daysText.toLongOrNull() ?: 0} days\nInterest amount: ${money(interest)}\nPrincipal + interest: ${money(principal + interest)}") }, modifier = Modifier.weight(1f)) { Text("Share image") }
-                    Button(onClick = { shareCalculatorResultPdf(context, "Interest Calculator", "INTEREST CALCULATION RESULT\nPrincipal: ${money(principal!!)}\nMonthly interest rate: ${rateText}%\nDuration: ${monthsText.toLongOrNull() ?: 0} months, ${daysText.toLongOrNull() ?: 0} days\nInterest amount: ${money(interest)}\nPrincipal + interest: ${money(principal + interest)}") }, modifier = Modifier.weight(1f)) { Text("Share PDF") }
+                    Button(onClick = { shareCalculatorResult(context, "Interest Calculator", "INTEREST CALCULATION RESULT\nPrincipal: ${money(principal!!)}\n${ratePeriod} interest rate: ${enteredRate}%\nDuration: ${yearsText.toLongOrNull() ?: 0} years, ${monthsText.toLongOrNull() ?: 0} months, ${daysText.toLongOrNull() ?: 0} days\nInterest amount: ${money(interest)}\nInterest per month: ${money(principal * rate / 100.0)}\nInterest per year: ${money(principal * rate * 12.0 / 100.0)}\nPrincipal + interest: ${money(principal + interest)}") }, modifier = Modifier.weight(1f)) { Text("Share image") }
+                    Button(onClick = { shareCalculatorResultPdf(context, "Interest Calculator", "INTEREST CALCULATION RESULT\nPrincipal: ${money(principal!!)}\n${ratePeriod} interest rate: ${enteredRate}%\nDuration: ${yearsText.toLongOrNull() ?: 0} years, ${monthsText.toLongOrNull() ?: 0} months, ${daysText.toLongOrNull() ?: 0} days\nInterest amount: ${money(interest)}\nInterest per month: ${money(principal * rate / 100.0)}\nInterest per year: ${money(principal * rate * 12.0 / 100.0)}\nPrincipal + interest: ${money(principal + interest)}") }, modifier = Modifier.weight(1f)) { Text("Share PDF") }
                 }
             } else {
                 Text("Enter a positive principal, a non-negative rate, and a valid duration.",
@@ -1494,10 +1564,10 @@ private fun TenureCalculatorCard() {
 private fun PaddyCalculatorCard() {
     val context = LocalContext.current
     var calculationType by remember { mutableStateOf("TYPE1") }
-    var bagsText by remember { mutableStateOf("131") }
-    var bagWeightText by remember { mutableStateOf("40") }
+    var bagsText by remember { mutableStateOf("") }
+    var bagWeightText by remember { mutableStateOf("") }
     var cuttingMode by remember { mutableStateOf("BAG") }
-    var cuttingText by remember { mutableStateOf("1") }
+    var cuttingText by remember { mutableStateOf("") }
     var priceText by remember { mutableStateOf("") }
 
     val bags = bagsText.toLongOrNull()
@@ -2627,21 +2697,23 @@ private fun BackupScreen(
     onBackupNow: () -> Unit,
     onRecoverDeviceBackup: () -> Unit,
     onExport: () -> Unit,
+    onExportPortable: () -> Unit,
     onImport: () -> Unit
 ) {
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("Your data stays on this device", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        Text("No login, cloud database, or external server. Back up all records to the Android folder in one tap, recover a saved device snapshot, or export an encrypted backup file.")
+        Text("Your local snapshot is kept as one replaceable file. Export a portable JSON copy to Google Drive or another file provider when you want off-device protection.")
         Card(Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(22.dp)),
             shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Icon(Icons.Filled.FileDownload, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                 Text("Back up records", style = MaterialTheme.typography.titleMedium)
-                Text("One tap saves every loan and repayment to Download/FundNiti/Backup/Lendora-Data.json. On Android 10 and later, this shared Downloads copy is designed to remain after uninstall. On reinstall, FundNiti checks it and restores records automatically when the in-app database is empty.")
+                Text("One tap updates the single snapshot at Download/FundNiti/Backup/Lendora-Data.json. On reinstall, FundNiti asks whether to load the snapshot when the app database is empty.")
                 Button(onClick = onBackupNow, modifier = Modifier.fillMaxWidth()) { Text("Back up all data now") }
                 Button(onClick = onExport, modifier = Modifier.fillMaxWidth()) { Text("Export encrypted backup file") }
+                OutlinedButton(onClick = onExportPortable, modifier = Modifier.fillMaxWidth()) { Text("Save portable backup to Drive / files") }
             }
         }
         Card(Modifier.fillMaxWidth() , elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)) {
@@ -2883,6 +2955,11 @@ private fun LoanDialog(
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 singleLine = true, shape = RoundedCornerShape(16.dp)
                             )
+                            val reminderDate = dueDays.toLongOrNull()?.takeIf { it > 0 }?.let { days -> LocalDate.now().plusDays(days) }
+                            if (reminderDate != null) Text(
+                                "Reminder date: ${reminderDate.format(java.time.format.DateTimeFormatter.ofPattern("MMM dd yyyy EEEE", Locale.ENGLISH))}",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary
+                            )
                             OutlinedTextField(
                                 value = note, onValueChange = { note = it }, modifier = Modifier.fillMaxWidth(),
                                 label = { Text("Note (optional)") }, minLines = 2, maxLines = 4,
@@ -3071,8 +3148,11 @@ private fun PaddySeasonScreen(
     var editing by remember { mutableStateOf<SeasonPaddyEntity?>(null) }
     var showEditor by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf<SeasonPaddyEntity?>(null) }
-    var seasonFilter by remember { mutableStateOf("All seasons") }
-    val visible = records.filter { seasonFilter == "All seasons" || it.seasonName.contains(seasonFilter, true) }
+    var seasonFilter by remember { mutableStateOf("All Seasons") }
+    var filterExpanded by remember { mutableStateOf(false) }
+    val visible = records.filter {
+        seasonFilter == "All Seasons" || it.seasonName.contains(seasonFilter, true)
+    }
     val totalBags = visible.sumOf { it.bags }
     val totalQuintals = visible.sumOf { it.bags * it.kgPerBag / 100.0 }
     val totalValue = visible.sumOf { it.bags * it.kgPerBag / 100.0 * it.ratePerQuintal }
@@ -3093,9 +3173,16 @@ private fun PaddySeasonScreen(
                 Icon(Icons.Filled.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(5.dp)); Text("Add lot")
             }
         }
-        OutlinedTextField(value = seasonFilter, onValueChange = { seasonFilter = it.ifBlank { "All seasons" } },
-            label = { Text("Filter by season") }, modifier = Modifier.fillMaxWidth(),
-            singleLine = true, supportingText = { Text("Type a season name, or All seasons") })
+        Box {
+            OutlinedTextField(value = seasonFilter, onValueChange = {}, readOnly = true,
+                label = { Text("Filter by season") }, modifier = Modifier.fillMaxWidth().clickable { filterExpanded = true },
+                trailingIcon = { Icon(Icons.Filled.ArrowDropDown, contentDescription = "Choose season filter") })
+            DropdownMenu(expanded = filterExpanded, onDismissRequest = { filterExpanded = false }) {
+                listOf("All Seasons", "Kharif", "Rabi").forEach { option ->
+                    DropdownMenuItem(text = { Text(option) }, onClick = { seasonFilter = option; filterExpanded = false })
+                }
+            }
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             StatCard("Paddy bags", totalBags.toString(), Modifier.weight(1f))
             StatCard("Harvest weight", "${paddyNumber(totalQuintals)} qtl", Modifier.weight(1f))
@@ -3143,7 +3230,9 @@ private fun PaddySeasonScreen(
                     DetailLine("Rate / quintal", money(record.ratePerQuintal))
                     DetailLine("Lot value", money(value))
                     DetailLine("Paid / remaining", "${money(record.paidAmount)} / ${money((value - record.paidAmount).coerceAtLeast(0.0))}")
-                    DetailLine("Storage location", record.storageLocation.ifBlank { "Not specified" })
+                    DetailLine("Lot status", record.storageLocation.ifBlank { "Preserved" })
+                    record.cuttingPerBagKg?.let { DetailLine("Cutting per bag", "$it kg") }
+                    record.cuttingPerQuintalKg?.let { DetailLine("Cutting per quintal", "$it kg") }
                     if (record.notes.isNotBlank()) Text(record.notes, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("Tap lot to edit details", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -3167,12 +3256,15 @@ private fun PaddyRecordDialog(
     onDismiss: () -> Unit,
     onSave: (SeasonPaddyEntity) -> Unit
 ) {
-    var season by remember(existing?.id) { mutableStateOf(existing?.seasonName ?: LocalDate.now().year.toString() + " season") }
+    var season by remember(existing?.id) { mutableStateOf(existing?.seasonName ?: "") }
     var farmer by remember(existing?.id) { mutableStateOf(existing?.farmerName ?: "") }
     var variety by remember(existing?.id) { mutableStateOf(existing?.paddyVariety ?: "") }
-    var storage by remember(existing?.id) { mutableStateOf(existing?.storageLocation ?: "") }
+    var storage by remember(existing?.id) { mutableStateOf(existing?.storageLocation?.takeIf { it == "Sold" || it == "Preserved" } ?: "Preserved") }
+    var storageExpanded by remember { mutableStateOf(false) }
+    var cuttingPerBag by remember(existing?.id) { mutableStateOf(existing?.cuttingPerBagKg?.toString() ?: "") }
+    var cuttingPerQuintal by remember(existing?.id) { mutableStateOf(existing?.cuttingPerQuintalKg?.toString() ?: "") }
     var bags by remember(existing?.id) { mutableStateOf(existing?.bags?.toString() ?: "") }
-    var kgPerBag by remember(existing?.id) { mutableStateOf(existing?.kgPerBag?.toString() ?: "75") }
+    var kgPerBag by remember(existing?.id) { mutableStateOf(existing?.kgPerBag?.toString() ?: "") }
     var rate by remember(existing?.id) { mutableStateOf(existing?.ratePerQuintal?.toString() ?: "") }
     var paid by remember(existing?.id) { mutableStateOf(existing?.paidAmount?.toString() ?: "0") }
     var notes by remember(existing?.id) { mutableStateOf(existing?.notes ?: "") }
@@ -3184,10 +3276,23 @@ private fun PaddyRecordDialog(
         title = { Text(if (existing == null) "Add paddy record" else "Edit paddy record") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(season, { season = it }, label = { Text("Season (e.g. Kharif 2026)") }, singleLine = true)
+                OutlinedTextField(season, { season = it }, label = { Text("Season (Kharif or Rabi)") }, singleLine = true)
                 OutlinedTextField(farmer, { farmer = it }, label = { Text("Farmer / owner name") }, singleLine = true)
                 OutlinedTextField(variety, { variety = it }, label = { Text("Paddy variety (optional)") }, singleLine = true)
-                OutlinedTextField(storage, { storage = it }, label = { Text("Storage / godown location") }, singleLine = true)
+                Box {
+                    OutlinedTextField(storage, {}, label = { Text("Lot status") }, readOnly = true,
+                        trailingIcon = { Icon(Icons.Filled.ArrowDropDown, contentDescription = "Choose lot status") },
+                        modifier = Modifier.fillMaxWidth().clickable { storageExpanded = true }, singleLine = true)
+                    DropdownMenu(expanded = storageExpanded, onDismissRequest = { storageExpanded = false }) {
+                        listOf("Sold", "Preserved").forEach { option ->
+                            DropdownMenuItem(text = { Text(option) }, onClick = { storage = option; storageExpanded = false })
+                        }
+                    }
+                }
+                OutlinedTextField(cuttingPerBag, { cuttingPerBag = it.filter { c -> c.isDigit() || c == '.' } },
+                    label = { Text("Cutting per bag (kg, optional)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
+                OutlinedTextField(cuttingPerQuintal, { cuttingPerQuintal = it.filter { c -> c.isDigit() || c == '.' } },
+                    label = { Text("Cutting per quintal (kg, optional)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
                 OutlinedTextField(bags, { bags = it.filter(Char::isDigit) }, label = { Text("Number of bags") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true)
                 OutlinedTextField(kgPerBag, { kgPerBag = it.filter { c -> c.isDigit() || c == '.' } }, label = { Text("Kg per bag") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
                 OutlinedTextField(rate, { rate = it.filter { c -> c.isDigit() || c == '.' } }, label = { Text("Price per quintal (₹)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
@@ -3203,6 +3308,7 @@ private fun PaddyRecordDialog(
                 onClick = {
                     onSave(SeasonPaddyEntity(id = existing?.id ?: 0L, seasonName = season.trim(),
                         farmerName = farmer.trim(), paddyVariety = variety.trim(), storageLocation = storage.trim(),
+                        cuttingPerBagKg = cuttingPerBag.toDoubleOrNull(), cuttingPerQuintalKg = cuttingPerQuintal.toDoubleOrNull(),
                         bags = bagCount, kgPerBag = kg, ratePerQuintal = rate.toDoubleOrNull() ?: 0.0,
                         paidAmount = paid.toDoubleOrNull() ?: 0.0, recordedAt = existing?.recordedAt ?: System.currentTimeMillis(),
                         notes = notes.trim()))
