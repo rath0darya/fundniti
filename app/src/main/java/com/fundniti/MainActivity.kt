@@ -1225,7 +1225,7 @@ private fun DashboardScreen(
         }
         if (paddyRecords.isNotEmpty()) item {
             val bags = paddyRecords.sumOf { it.bags }
-            val quintals = paddyRecords.sumOf { it.bags * it.kgPerBag / 100.0 }
+            val quintals = paddyRecords.sumOf { paddyNetQuintals(it) }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 StatCard("Paddy bags", bags.toString(), Modifier.weight(1f))
                 StatCard("Paddy stock", "${paddyNumber(quintals)} qtl", Modifier.weight(1f))
@@ -2232,16 +2232,16 @@ private fun StatisticsScreen(
             StatCard("Loan records", loans.size.toString(), Modifier.weight(1f))
         }
         val paddyBags = paddyRecords.sumOf { it.bags }
-        val paddyQuintals = paddyRecords.sumOf { it.bags * it.kgPerBag / 100.0 }
-        val paddyValue = paddyRecords.sumOf { it.bags * it.kgPerBag / 100.0 * it.ratePerQuintal }
+        val paddyQuintals = paddyRecords.sumOf { paddyNetQuintals(it) }
+        val paddyValue = paddyRecords.sumOf { paddyNetValue(it) }
         val paddyPaid = paddyRecords.sumOf { it.paidAmount }
         val storageSummary = paddyRecords.groupBy { it.storageLocation.trim().ifBlank { "Not specified" } }
-            .mapValues { (_, lots) -> lots.sumOf { it.bags * it.kgPerBag / 100.0 } }
+            .mapValues { (_, lots) -> lots.sumOf { paddyNetQuintals(it) } }
             .toList().sortedByDescending { it.second }.take(4)
         GlassPanel("Paddy season & storage report", "Harvest, stock locations and settlement totals from saved paddy records") {
             DetailLine("Recorded lots", paddyRecords.size.toString())
             DetailLine("Paddy bags", paddyBags.toString())
-            DetailLine("Harvest weight", "${paddyNumber(paddyQuintals)} quintals")
+            DetailLine("Weight after cutting", "${paddyNumber(paddyQuintals)} quintals")
             DetailLine("Estimated value", money(paddyValue))
             DetailLine("Paid / remaining", "${money(paddyPaid)} / ${money((paddyValue - paddyPaid).coerceAtLeast(0.0))}")
             if (storageSummary.isNotEmpty()) {
@@ -2251,7 +2251,7 @@ private fun StatisticsScreen(
                 }
             }
             paddyRecords.groupBy { it.seasonName.trim() }.toSortedMap().forEach { (season, lots) ->
-                val quintals = lots.sumOf { it.bags * it.kgPerBag / 100.0 }
+                val quintals = lots.sumOf { paddyNetQuintals(it) }
                 DetailLine(season, "${lots.sumOf { it.bags }} bags · ${paddyNumber(quintals)} quintals")
             }
             if (paddyRecords.isEmpty()) Text("Add paddy lots to include harvest and storage details in this report.",
@@ -3149,6 +3149,23 @@ private fun EmptyState(title: String, message: String) {
 
 
 @Composable
+private fun paddyGrossKg(record: SeasonPaddyEntity): Double = record.bags * record.kgPerBag
+
+private fun paddyCuttingKg(record: SeasonPaddyEntity): Double {
+    val grossQuintals = paddyGrossKg(record) / 100.0
+    val perBagCutting = (record.cuttingPerBagKg ?: 0.0) * record.bags
+    val perQuintalCutting = (record.cuttingPerQuintalKg ?: 0.0) * grossQuintals
+    return (perBagCutting + perQuintalCutting).coerceAtLeast(0.0)
+}
+
+private fun paddyNetKg(record: SeasonPaddyEntity): Double =
+    (paddyGrossKg(record) - paddyCuttingKg(record)).coerceAtLeast(0.0)
+
+private fun paddyNetQuintals(record: SeasonPaddyEntity): Double = paddyNetKg(record) / 100.0
+
+private fun paddyNetValue(record: SeasonPaddyEntity): Double =
+    paddyNetQuintals(record) * record.ratePerQuintal
+
 private fun paddyNumber(value: Double): String = DecimalFormat("#,##0.##", DecimalFormatSymbols(Locale("en", "IN"))).format(value)
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -3168,11 +3185,11 @@ private fun PaddySeasonScreen(
         seasonFilter == "All Seasons" || it.seasonName.contains(seasonFilter, true)
     }
     val totalBags = visible.sumOf { it.bags }
-    val totalQuintals = visible.sumOf { it.bags * it.kgPerBag / 100.0 }
-    val totalValue = visible.sumOf { it.bags * it.kgPerBag / 100.0 * it.ratePerQuintal }
+    val totalQuintals = visible.sumOf { paddyNetQuintals(it) }
+    val totalValue = visible.sumOf { paddyNetValue(it) }
     val totalPaid = visible.sumOf { it.paidAmount }
     val storageSummary = visible.groupBy { it.storageLocation.trim().ifBlank { "Not specified" } }
-        .mapValues { (_, lots) -> lots.sumOf { it.bags * it.kgPerBag / 100.0 } }
+        .mapValues { (_, lots) -> lots.sumOf { paddyNetQuintals(it) } }
         .toList().sortedByDescending { it.second }
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -3252,8 +3269,10 @@ private fun PaddySeasonScreen(
             EmptyState("No paddy records yet", "Add a lot to track its season, harvest weight, payment and storage location.")
             Button(onClick = { editing = null; showEditor = true }, modifier = Modifier.fillMaxWidth()) { Text("Add first paddy lot") }
         } else visible.forEach { record ->
-            val quintals = record.bags * record.kgPerBag / 100.0
-            val value = quintals * record.ratePerQuintal
+            val grossQuintals = paddyGrossKg(record) / 100.0
+            val cuttingQuintals = paddyCuttingKg(record) / 100.0
+            val quintals = paddyNetQuintals(record)
+            val value = paddyNetValue(record)
             Card(Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(24.dp))
                 .clickable { editing = record; showEditor = true },
                 shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -3267,7 +3286,9 @@ private fun PaddySeasonScreen(
                         }
                         IconButton(onClick = { confirmDelete = record }) { Icon(Icons.Filled.Delete, contentDescription = "Delete paddy record") }
                     }
-                    DetailLine("Harvest", "${record.bags} bags · ${paddyNumber(quintals)} quintals")
+                    DetailLine("Harvest before cutting", "${record.bags} bags · ${paddyNumber(grossQuintals)} quintals")
+                    DetailLine("Cutting deducted", "${paddyNumber(cuttingQuintals * 100.0)} kg")
+                    DetailLine("Net paddy", "${paddyNumber(quintals)} quintals")
                     DetailLine("Rate / quintal", money(record.ratePerQuintal))
                     DetailLine("Lot value", money(value))
                     DetailLine("Paid / remaining", "${money(record.paidAmount)} / ${money((value - record.paidAmount).coerceAtLeast(0.0))}")
@@ -3312,8 +3333,16 @@ private fun PaddyRecordDialog(
     var notes by remember(existing?.id) { mutableStateOf(existing?.notes ?: "") }
     val bagCount = bags.toIntOrNull() ?: 0
     val kg = kgPerBag.toDoubleOrNull() ?: 0.0
-    val quintals = bagCount * kg / 100.0
+    val grossKg = bagCount * kg
+    val grossQuintals = grossKg / 100.0
+    val cuttingKg = (bagCount * (cuttingPerBag.toDoubleOrNull() ?: 0.0)) +
+        (grossQuintals * (cuttingPerQuintal.toDoubleOrNull() ?: 0.0))
+    val netKg = (grossKg - cuttingKg).coerceAtLeast(0.0)
+    val quintals = netKg / 100.0
     val total = quintals * (rate.toDoubleOrNull() ?: 0.0)
+    val cuttingValid = (cuttingPerBag.toDoubleOrNull() ?: 0.0) >= 0.0 &&
+        (cuttingPerQuintal.toDoubleOrNull() ?: 0.0) >= 0.0 &&
+        cuttingKg <= grossKg + 1e-9
     AlertDialog(onDismissRequest = onDismiss,
         title = { Text(if (existing == null) "Add paddy record" else "Edit paddy record") },
         text = {
@@ -3367,14 +3396,14 @@ private fun PaddyRecordDialog(
                 OutlinedTextField(kgPerBag, { kgPerBag = it.filter { c -> c.isDigit() || c == '.' } }, label = { Text("Kg per bag") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
                 OutlinedTextField(rate, { rate = it.filter { c -> c.isDigit() || c == '.' } }, label = { Text("Price per quintal (₹)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
                 OutlinedTextField(paid, { paid = it.filter { c -> c.isDigit() || c == '.' } }, label = { Text("Amount already paid (₹)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
-                Text("Calculated: ${paddyNumber(quintals)} quintals · ${money(total)} total value · ${money((total - (paid.toDoubleOrNull() ?: 0.0)).coerceAtLeast(0.0))} remaining",
+                Text("Gross: ${paddyNumber(grossQuintals)} qtl · Cutting: ${paddyNumber(cuttingKg)} kg · Net: ${paddyNumber(quintals)} qtl\nValue after cutting: ${money(total)} · Remaining: ${money((total - (paid.toDoubleOrNull() ?: 0.0)).coerceAtLeast(0.0))}",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                 OutlinedTextField(notes, { notes = it }, label = { Text("Notes (optional)") }, minLines = 2)
             }
         },
         confirmButton = {
             TextButton(enabled = season.isNotBlank() && farmer.isNotBlank() && bagCount > 0 && kg > 0.0 &&
-                (rate.toDoubleOrNull() ?: 0.0) >= 0.0 && (paid.toDoubleOrNull() ?: -1.0) >= 0.0,
+                (rate.toDoubleOrNull() ?: 0.0) >= 0.0 && (paid.toDoubleOrNull() ?: -1.0) >= 0.0 && cuttingValid,
                 onClick = {
                     onSave(SeasonPaddyEntity(id = existing?.id ?: 0L, seasonName = season.trim(),
                         farmerName = farmer.trim(), paddyVariety = variety.trim(), storageLocation = storage.trim(),
