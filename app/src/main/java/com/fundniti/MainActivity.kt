@@ -38,7 +38,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalance
-import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Home
@@ -74,6 +73,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExposedDropdownMenu
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.menuAnchor
 import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -3152,6 +3155,7 @@ private fun EmptyState(title: String, message: String) {
 @Composable
 private fun paddyNumber(value: Double): String = DecimalFormat("#,##0.##", DecimalFormatSymbols(Locale("en", "IN"))).format(value)
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PaddySeasonScreen(
     modifier: Modifier,
@@ -3187,11 +3191,19 @@ private fun PaddySeasonScreen(
                 Icon(Icons.Filled.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(5.dp)); Text("Add lot")
             }
         }
-        Box {
-            OutlinedTextField(value = seasonFilter, onValueChange = {}, readOnly = true,
-                label = { Text("Filter by season") }, modifier = Modifier.fillMaxWidth().clickable { filterExpanded = true },
-                trailingIcon = { Icon(Icons.Filled.ArrowDropDown, contentDescription = "Choose season filter") })
-            DropdownMenu(expanded = filterExpanded, onDismissRequest = { filterExpanded = false }) {
+        ExposedDropdownMenuBox(
+            expanded = filterExpanded,
+            onExpandedChange = { filterExpanded = it }
+        ) {
+            OutlinedTextField(
+                value = seasonFilter,
+                onValueChange = {},
+                readOnly = true,
+                label = { Text("Filter by season") },
+                modifier = Modifier.fillMaxWidth().menuAnchor(),
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = filterExpanded) }
+            )
+            ExposedDropdownMenu(expanded = filterExpanded, onDismissRequest = { filterExpanded = false }) {
                 listOf("All Seasons", "Kharif", "Rabi").forEach { option ->
                     DropdownMenuItem(text = { Text(option) }, onClick = { seasonFilter = option; filterExpanded = false })
                 }
@@ -3264,6 +3276,7 @@ private fun PaddySeasonScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PaddyRecordDialog(
     existing: SeasonPaddyEntity?,
@@ -3293,11 +3306,20 @@ private fun PaddyRecordDialog(
                 OutlinedTextField(season, { season = it }, label = { Text("Season (Kharif or Rabi)") }, singleLine = true)
                 OutlinedTextField(farmer, { farmer = it }, label = { Text("Farmer / owner name") }, singleLine = true)
                 OutlinedTextField(variety, { variety = it }, label = { Text("Paddy variety (optional)") }, singleLine = true)
-                Box {
-                    OutlinedTextField(storage, {}, label = { Text("Lot status") }, readOnly = true,
-                        trailingIcon = { Icon(Icons.Filled.ArrowDropDown, contentDescription = "Choose lot status") },
-                        modifier = Modifier.fillMaxWidth().clickable { storageExpanded = true }, singleLine = true)
-                    DropdownMenu(expanded = storageExpanded, onDismissRequest = { storageExpanded = false }) {
+                ExposedDropdownMenuBox(
+                    expanded = storageExpanded,
+                    onExpandedChange = { storageExpanded = it }
+                ) {
+                    OutlinedTextField(
+                        value = storage,
+                        onValueChange = {},
+                        label = { Text("Lot status") },
+                        readOnly = true,
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = storageExpanded) },
+                        modifier = Modifier.fillMaxWidth().menuAnchor(),
+                        singleLine = true
+                    )
+                    ExposedDropdownMenu(expanded = storageExpanded, onDismissRequest = { storageExpanded = false }) {
                         listOf("Sold", "Preserved").forEach { option ->
                             DropdownMenuItem(text = { Text(option) }, onClick = { storage = option; storageExpanded = false })
                         }
